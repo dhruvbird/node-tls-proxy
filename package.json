@@ -1,0 +1,19 @@
+{
+  "author": "Dhruv Matani <dhruvbird@gmail.com> (https://dhruvbird.com/)",
+  "name": "node-tls-proxy",
+  "description": "TLS proxy in node.js for safe browsing",
+  "version": "0.0.1",
+  "homepage": "https://github.com/dhruvbird/node-tls-proxy",
+  "repository": {
+    "type": "git",
+    "url": "git://github.com/dhruvbird/node-tls-proxy.git"
+  },
+  "dependencies": {
+    "tav": "~0.1.0"
+  },
+  "devDependencies": {},
+  "optionalDependencies": {},
+  "engines": {
+    "node": "*"
+  }
+}
