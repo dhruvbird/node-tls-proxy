@@ -63,10 +63,6 @@ if (opts.timeout) {
 }
 
 
-setInterval(function() {
-    console.log("Request Queue:", agent.queue);
-}, 10000);
-
 var np_req = 0;
 
 
