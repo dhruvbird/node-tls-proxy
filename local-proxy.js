@@ -31,35 +31,35 @@ var REMOTE_PROXY_PORT = 443;
 var TIMEOUT_SEC = 90;
 
 function map_hash(m, mapper) {
-	var r = { };
-	for (var k in m) {
-		r[k] = mapper(k, m[k]);
-	}
-	return r;
+    var r = { };
+    for (var k in m) {
+	r[k] = mapper(k, m[k]);
+    }
+    return r;
 }
 
 function hitch(obj, proc) {
-	return function() {
-		return proc.apply(obj, arguments);
-	};
+    return function() {
+	return proc.apply(obj, arguments);
+    };
 }
 
 process.on('uncaughtException', function (err) {
-	console.log('(un)Caught exception: ' + err);
-	console.log(err.stack);
+    console.log('(un)Caught exception: ' + err);
+    console.log(err.stack);
 });
 
 var opts = require('tav').set();
 
 if (opts.remote) {
-	var h, p;
-	var hp = opts.remote.match(/([^:]+)(:(.+))?/);
-	REMOTE_PROXY_HOST = hp[1];
-	REMOTE_PROXY_PORT = parseInt(hp[3] || REMOTE_PROXY_PORT);
+    var h, p;
+    var hp = opts.remote.match(/([^:]+)(:(.+))?/);
+    REMOTE_PROXY_HOST = hp[1];
+    REMOTE_PROXY_PORT = parseInt(hp[3] || REMOTE_PROXY_PORT);
 }
 
 if (opts.timeout) {
-	TIMEOUT_SEC = parseInt(opts.timeout < 60 ? 60 : opts.timeout);
+    TIMEOUT_SEC = parseInt(opts.timeout < 60 ? 60 : opts.timeout);
 }
 
 
@@ -71,133 +71,131 @@ var np_req = 0;
 
 
 http.createServer(function (req, res) {
-	// console.log(req);
-	// console.log("Request Headers:", req.headers);
+    // console.log(req);
+    // console.log("Request Headers:", req.headers);
 
-	var headers = req.headers;
-	var u       = url.parse(req.url);
-	var host    = headers['host'];
-	var search  = u.search || '';
-	var _terminated = false;
+    var headers = req.headers;
+    var u       = url.parse(req.url);
+    var host    = headers['host'];
+    var search  = u.search || '';
+    var _terminated = false;
 
-	// console.log("url:", u);
+    // console.log("url:", u);
 
-	// Reject the request if it is anything other than http://
-	if (u.protocol != "http:") {
-		res.writeHead(503, "This proxy serves only HTTP requests");
-		res.write("503 This proxy serves only HTTP requests. You tried: " + u.protocol);
-		res.end();
-		return;
+    // Reject the request if it is anything other than http://
+    if (u.protocol != "http:") {
+	res.writeHead(503, "This proxy serves only HTTP requests");
+	res.write("503 This proxy serves only HTTP requests. You tried: " + u.protocol);
+	res.end();
+	return;
+    }
+
+    ++np_req;
+
+    console.log(np_req, "Requesting URL:", req.url);
+
+    // Create an timeout object to timeout our connection if there is
+    // no data transfer happening for TIMEOUT_SEC second.
+    var to_interval = null;
+    
+    function reset_timeout() {
+	unset_timeout();
+
+	to_interval = setTimeout(function() {
+	    console.error("Timing out request:", req.url);
+	    preq.destroy();
+	}, TIMEOUT_SEC * 1000);
+    }
+
+    function unset_timeout() {
+	// console.log("clearing Timeout for:", host + req.url);
+	if (to_interval) {
+	    clearTimeout(to_interval);
+	    to_interval = null;
 	}
+    }
 
-	++np_req;
+    reset_timeout();
 
-	console.log(np_req, "Requesting URL:", req.url);
+    function terminate_request(streams) {
+	if (!_terminated) {
+	    --np_req;
+	    console.error(np_req, "Hard terminating request:", req.url);
+	    _terminated = true;
+	    clearTimeout(to_interval);
 
-	// Create an timeout object to timeout our connection if there is
-	// no data transfer happening for TIMEOUT_SEC second.
-	var to_interval = null;
-	
-	function reset_timeout() {
-		unset_timeout();
-
-		to_interval = setTimeout(function() {
-			console.error("Timing out request:", req.url);
-			preq.destroy();
-		}, TIMEOUT_SEC * 1000);
+	    streams.forEach(function(stream) {
+		stream.destroy();
+	    });
 	}
+    }
 
-	function unset_timeout() {
-		// console.log("clearing Timeout for:", host + req.url);
-		if (to_interval) {
-			clearTimeout(to_interval);
-			to_interval = null;
-		}
+    // The remote request object
+    var preq = https.request({
+	host: REMOTE_PROXY_HOST, 
+	port: REMOTE_PROXY_PORT, 
+	path: u.pathname + search, 
+	method: req.method, 
+	agent: false
+    }, function (pres) {
+	// console.log("pres:", pres);
+	var rheaders = pres.headers;
+
+	res.writeHead(pres.statusCode, rheaders);
+
+	// Pipe all data from source (pres) to destination (res)
+	pres.on('data', function(d) {
+	    res.write(d);
+	    reset_timeout();
+	}).on('end', function() {
+	    if (_terminated) {
+		throw "Calling end on a terminated request";
+		console.error("Calling END on a terminated request");
+		// process.exit();
+	    }
+	    --np_req;
+	    console.log(np_req, "Received Complete Response for URL:", req.url);
+	    clearTimeout(to_interval);
+	    res.end();
+	});
+
+	pres.on('error', function() {
+	    console.log("Error getting HTTPS response:", arguments);
+	    // Don't forget to destroy the server's response stream
+	    terminate_request([res]);
+	});
+    });
+
+    preq.on('error', function() {
+	console.log("Error connecting to remote proxy:", arguments);
+	terminate_request([res]);
+    });
+
+    // Prevent cross domain referer leakage
+    if (headers.referer) {
+	var ru = url.parse(headers.referer);
+	if (ru.hostname != u.hostname) {
+            // FIXME: Allow domain level leakage.
+	    headers.referer = u.protocol + "//" + u.hostname + "/";
 	}
+    }
 
+    // Write out the headers
+    map_hash(headers, hitch(preq, preq.setHeader));
+
+    // Pipe the request from the real client (req) to the remote proxy (preq)
+    // req.pipe(preq);
+    req.on('data', function(d) {
+	preq.write(d);
 	reset_timeout();
+    }).on('end', function() {
+	preq.end();
+    });
 
-	function terminate_request(streams) {
-		if (!_terminated) {
-			--np_req;
-			console.error(np_req, "Hard terminating request:", req.url);
-			_terminated = true;
-			clearTimeout(to_interval);
-
-			streams.forEach(function(stream) {
-				stream.destroy();
-			});
-		}
-	}
-
-	// The remote request object
-	var preq = https.request({
-	    host: REMOTE_PROXY_HOST, 
-	    port: REMOTE_PROXY_PORT, 
-	    path: u.pathname + search, 
-	    method: req.method, 
-	    agent: false
-	}, function (pres) {
-		// console.log("pres:", pres);
-		var rheaders = pres.headers;
-
-		res.writeHead(pres.statusCode, rheaders);
-
-		// Pipe all data from source (pres) to destination (res)
-		pres.on('data', function(d) {
-			res.write(d);
-			reset_timeout();
-		})
-		.on('end', function() {
-			if (_terminated) {
-				throw "Calling end on a terminated request";
-				console.error("Calling END on a terminated request");
-				process.exit();
-			}
-			--np_req;
-			console.log(np_req, "Received Complete Response for URL:", req.url);
-			clearTimeout(to_interval);
-			res.end();
-		});
-
-		pres.on('error', function() {
-			console.log("Error getting HTTPS response:", arguments);
-			// Don't forget to destroy the server's response stream
-			terminate_request([res]);
-		});
-	});
-
-	preq.on('error', function() {
-		console.log("Error connecting to remote proxy:", arguments);
-		terminate_request([res]);
-	});
-
-	// Prevent cross domain referer leakage
-	if (headers.referer) {
-		var ru = url.parse(headers.referer);
-		if (ru.hostname != u.hostname) {
-			headers.referer = u.protocol + "//" + u.hostname + "/";
-		}
-	}
-
-	// Write out the headers
-	map_hash(headers, hitch(preq, preq.setHeader));
-
-	// Pipe the request from the real client (req) to the remote proxy (preq)
-	// req.pipe(preq);
-	req.on('data', function(d) {
-		preq.write(d);
-		reset_timeout();
-	})
-	.on('end', function() {
-		preq.end();
-	});
-
-	// Destroy the stream on error
-	req.on('error', function() {
-		console.log("Error sending data to client:", arguments);
-		terminate_request([preq]);
-	});
+    // Destroy the stream on error
+    req.on('error', function() {
+	console.log("Error sending data to client:", arguments);
+	terminate_request([preq]);
+    });
 
 }).listen(8080);
-
