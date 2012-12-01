@@ -97,7 +97,8 @@ https.createServer(https_options, function (req, res) {
 
 	to_interval = setTimeout(function() {
 	    console.error("Timing out request:", host + req.url);
-	    rreq.destroy();
+	    // rreq.destroy();
+            terminate_request( [ rreq, req ] );
 	}, TIMEOUT_SEC * 1000);
     }
 
@@ -135,11 +136,6 @@ https.createServer(https_options, function (req, res) {
     }, function (rres) {
 	// console.log("rres:", rres);
 	var rheaders = rres.headers;
-
-	// Remove the "Content-Encoding" header.
-	// if (rheaders['content-encoding']) {
-	// delete rheaders['content-encoding'];
-	// }
 
 	res.writeHead(rres.statusCode, rheaders);
 
