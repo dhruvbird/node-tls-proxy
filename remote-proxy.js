@@ -78,8 +78,7 @@ https.createServer(https_options, function (req, res) {
 
     ++np_req;
 
-    console.log(np_req, "Requesting URL:", host + req.url);
-
+    console.log("[" + String(np_req) + "]", "Requesting URL:", host + req.url);
 
     // console.log("host:", host);
     // console.log("url:", u);
