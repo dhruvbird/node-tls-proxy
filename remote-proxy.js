@@ -116,7 +116,7 @@ https.createServer(https_options, function (req, res) {
     function terminate_request(streams) {
 	if (!_terminated) {
 	    --np_req;
-	    console.error(np_req, "Hard terminating request:", req.url);
+	    console.error("[" + String(np_req) + "]", "Hard terminating request:", req.url);
 	    _terminated = true;
 	    unset_timeout();
 
@@ -148,7 +148,7 @@ https.createServer(https_options, function (req, res) {
 	}).on('end', function() {
 	    unset_timeout();
 	    --np_req;
-	    console.log(np_req, "Received Complete Response for URL:", host + req.url);
+	    console.log("[" + String(np_req) + "]", "Received Complete Response for URL:", host + req.url);
 	    res.end();
 	});
 
