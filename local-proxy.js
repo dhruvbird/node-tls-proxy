@@ -88,7 +88,11 @@ http.createServer(function (req, res) {
 
     ++np_req;
 
-    console.log(np_req, "Requesting URL:", req.url);
+    var referer = '';
+    if (headers.referer) {
+        referer = headers.referer;
+    }
+    console.log(np_req, "Requesting URL:", req.url, "[Referer:", referer + "]");
 
     // Create an timeout object to timeout our connection if there is
     // no data transfer happening for TIMEOUT_SEC second.
